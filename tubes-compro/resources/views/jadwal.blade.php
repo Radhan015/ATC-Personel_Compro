@@ -241,76 +241,64 @@
         </div>
 
         <div class="card">
-            <table class="jadwal-table">
-                <thead>
-                    <tr>
-                        <th colspan="32" class="th-title-row">JADWAL DINAS ATC — JUNI 2026 (MEDIUM KATEGORI)</th>
-                    </tr>
-                    <tr>
-                        <th colspan="32" class="th-subtitle-row">Shift I: 06:00-15:00 LT (9 jam)  |  Shift II: 15:00-24:00 LT (9 jam)  |  Personel per shift: 3</th>
-                    </tr>
-                    <tr>
-                        <th class="th-header" rowspan="2">NO</th>
-                        <th class="th-header" rowspan="2">NAMA</th>
-                        <!-- Dates 1 to 30 -->
-                        @for ($i = 1; $i <= 30; $i++)
-                            <th class="th-header">{{ $i }}</th>
-                        @endfor
-                        <th class="th-header" rowspan="2">HK</th>
-                    </tr>
-                    <tr>
-                        <!-- Days -->
-                        @php
-                            $days = ['Sn', 'Sl', 'Rb', 'Km', 'Jm', 'Sb', 'Mg'];
-                        @endphp
-                        @for ($i = 0; $i < 30; $i++)
-                            @php
-                                $day = $days[$i % 7];
-                                $isWeekend = ($day == 'Sb' || $day == 'Mg');
-                            @endphp
-                            <th class="{{ $isWeekend ? 'th-weekend' : 'th-header' }}">{{ $day }}</th>
-                        @endfor
-                    </tr>
-                </thead>
-                <tbody>
-                    @php
-                        $rows = [
-                            ['AQS', 'PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA PA', 26],
-                            ['ADW', 'SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA SA', 26],
-                            ['AJP', 'PA PA PA PA PA L PA PA PA PA PA L PA PA CT CT CT CT CT PA PA PA PA PA L PA PA PA PA PA', 22],
-                            ['ALM', 'SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA SA', 26],
-                            ['OOP', 'PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA PA', 26],
-                            ['PBO', 'DK DK DK DK DK DK DK DK SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA', 19],
-                            ['SSA', 'PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA PA', 26],
-                            ['AAW', 'SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA CT CT CT CT CT SA SA SA SA', 22],
-                            ['MRH', 'PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA PA', 26],
-                            ['HFI', 'SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SK SA SA SA SA L SA SA SA SA SA', 25],
-                            ['MNR', 'PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA PA', 26],
-                            ['DFA', 'SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA SA', 26],
-                            ['NRA', 'PA PA PA PA PA L PA CT CT CT CT CT PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA PA', 22],
-                            ['ANR', 'SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA SA', 26],
-                            ['MRF', 'PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA L PA PA PA PA PA PA', 26],
-                            ['DNH', 'SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA L SA SA SA SA SA SA', 26],
-                        ];
-                    @endphp
-
-                    @foreach ($rows as $index => $row)
-                        <tr>
-                            <td class="col-no">{{ $index + 1 }}</td>
-                            <td class="col-nama">{{ $row[0] }}</td>
-                            @php
-                                $shifts = explode(' ', $row[1]);
-                            @endphp
-                            @foreach ($shifts as $shift)
-                                <td class="cell-{{ strtolower($shift) }}">{{ $shift }}</td>
-                            @endforeach
-                            <td class="col-hk">{{ $row[2] }}</td>
-                        </tr>
-                    @endforeach
-                </tbody>
+            <div id="jadwalStatus" style="padding: 30px; text-align: center; color: #666;">Memuat jadwal…</div>
+            <table class="jadwal-table" id="jadwalTable" style="display: none;">
+                <thead id="jadwalHead"></thead>
+                <tbody id="jadwalBody"></tbody>
             </table>
         </div>
     </div>
 
+    <script>
+        const API = 'http://localhost:5000/api';
+
+        document.querySelector('.btn-export').addEventListener('click', () => {
+            window.location.href = `${API}/export?format=xlsx`;
+        });
+
+        async function loadJadwal() {
+            const statusEl = document.getElementById('jadwalStatus');
+            const table    = document.getElementById('jadwalTable');
+            try {
+                const res  = await fetch(`${API}/schedule/month`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Gagal memuat jadwal');
+
+                const ncols = data.days + 3; // NO + NAMA + tanggal + HK
+                let head = `
+                    <tr><th colspan="${ncols}" class="th-title-row">${data.title}</th></tr>
+                    <tr><th colspan="${ncols}" class="th-subtitle-row">${data.shift_info}</th></tr>
+                    <tr>
+                        <th class="th-header" rowspan="2">NO</th>
+                        <th class="th-header" rowspan="2">NAMA</th>`;
+                data.day_headers.forEach(h => head += `<th class="th-header">${h.day}</th>`);
+                head += `<th class="th-header" rowspan="2">HK</th></tr><tr>`;
+                data.day_headers.forEach(h =>
+                    head += `<th class="${h.weekend ? 'th-weekend' : 'th-header'}">${h.name}</th>`);
+                head += '</tr>';
+                document.getElementById('jadwalHead').innerHTML = head;
+
+                let body = '';
+                data.rows.forEach(row => {
+                    body += `<tr><td class="col-no">${row.no}</td>
+                             <td class="col-nama" title="${row.nama}">${row.initial}</td>`;
+                    row.cells.forEach(c =>
+                        body += `<td class="cell-${c.code.toLowerCase()}" title="${c.airnav}">${c.code}</td>`);
+                    body += `<td class="col-hk">${row.hk}</td></tr>`;
+                });
+                document.getElementById('jadwalBody').innerHTML = body;
+
+                statusEl.style.display = 'none';
+                table.style.display = '';
+            } catch (err) {
+                const msg = err.message === 'Failed to fetch'
+                    ? 'Tidak bisa terhubung ke backend. Jalankan: <code>.venv/bin/python main.py</code>'
+                    : `${err.message} — upload data di halaman <a href="/input-jadwal">Input Jadwal</a>.`;
+                statusEl.innerHTML = msg;
+            }
+        }
+
+        loadJadwal();
+    </script>
 </body>
 </html>

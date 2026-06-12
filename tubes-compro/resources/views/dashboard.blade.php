@@ -17,11 +17,9 @@
             
             --cell-header-pagi: #FDE6B0;
             --cell-header-siang: #F7C39C;
-            --cell-header-malam: #A9B4F9;
             
             --cell-pagi: #FFF4D2;
             --cell-siang: #FDE8D7;
-            --cell-malam: #E6E9FE;
             --cell-label: #FFFFFF;
             
             --border-color: #E2E8F0;
@@ -223,13 +221,11 @@
 
         /* Table Colors */
         .col-posisi { background-color: #FFF; width: 15%; font-weight: 600; font-size: 16px !important; }
-        .col-pagi-header { background-color: var(--cell-header-pagi); width: 28%; }
-        .col-siang-header { background-color: var(--cell-header-siang); width: 28%; }
-        .col-malam-header { background-color: var(--cell-header-malam); width: 28%; }
+        .col-pagi-header { background-color: var(--cell-header-pagi); width: 42.5%; }
+        .col-siang-header { background-color: var(--cell-header-siang); width: 42.5%; }
 
         .cell-pagi { background-color: var(--cell-pagi); }
         .cell-siang { background-color: var(--cell-siang); }
-        .cell-malam { background-color: var(--cell-malam); }
         .cell-posisi { background-color: #FFF; font-weight: 600; font-size: 18px !important; color: #000; }
 
         /* Footer */
@@ -257,7 +253,6 @@
 
         .legend-pagi { background-color: var(--cell-header-pagi); }
         .legend-siang { background-color: var(--cell-header-siang); }
-        .legend-malam { background-color: var(--cell-header-malam); }
 
         .btn-export {
             background-color: #0D6EFD;
@@ -307,72 +302,150 @@
                 <p>Jadwal ATC</p>
             </div>
             <div class="filters">
-                <div class="filter-box">
-                    <span>30 Mei 2026</span>
-                    <i class="fa-regular fa-calendar"></i>
-                </div>
-                <div class="filter-box">
-                    <span>Semua Shift</span>
-                    <i class="fa-solid fa-chevron-down"></i>
-                </div>
+                <input type="date" id="dayPicker" class="filter-box">
+                <select id="shiftFilter" class="filter-box">
+                    <option value="">Semua Shift</option>
+                    <option value="S1">Pagi</option>
+                    <option value="S2">Siang</option>
+                </select>
             </div>
         </div>
 
         <div class="card">
-            <h2 class="card-title">Jadwal Per Tanggal</h2>
-            
-            <div class="table-container">
+            <h2 class="card-title" id="cardTitle">Jadwal Per Tanggal</h2>
+
+            <div id="dayStatus" style="padding: 30px; text-align: center; color: #666;">
+                Memuat jadwal…
+            </div>
+
+            <div class="table-container" id="tableContainer" style="display: none;">
                 <table class="schedule-table">
-                    <thead>
-                        <tr>
-                            <th class="col-posisi">Posisi / Sektor</th>
-                            <th class="col-pagi-header">PAGI<span>(06:00 - 12:00)</span></th>
-                            <th class="col-siang-header">Siang<span>(12:00 - 18:00)</span></th>
-                            <th class="col-malam-header">Malam<span>(18:00 - 23:00)</span></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class="cell-posisi">t1</td>
-                            <td class="cell-pagi"><strong>Pt1/B</strong><span>Andi, Budi</span></td>
-                            <td class="cell-siang"><strong>St1/A</strong><span>Rina, Deni</span></td>
-                            <td class="cell-malam"><strong>Mt1/B</strong><span>Andi, Budi</span></td>
-                        </tr>
-                        <tr>
-                            <td class="cell-posisi">t2</td>
-                            <td class="cell-pagi"><strong>Pt2/A</strong><span>Rina, Deni</span></td>
-                            <td class="cell-siang"><strong>St2/C</strong><span>Eko, Fajar</span></td>
-                            <td class="cell-malam"><strong>Mt2/B</strong><span>Jaka, Alif</span></td>
-                        </tr>
-                        <tr>
-                            <td class="cell-posisi">t3</td>
-                            <td class="cell-pagi"><strong>Pt3/C</strong><span>Eko, Fajar</span></td>
-                            <td class="cell-siang"><strong>St3/B</strong><span>Jaka, Alif</span></td>
-                            <td class="cell-malam"><strong>Mt3/C</strong><span>Rusdi, Faiz</span></td>
-                        </tr>
-                        <tr>
-                            <td class="cell-posisi">t4</td>
-                            <td class="cell-pagi"><strong>Pt4/A</strong><span>Rizal, Reza</span></td>
-                            <td class="cell-siang"><strong>St4/C</strong><span>Rusdi, Faiz</span></td>
-                            <td class="cell-malam"><strong>Mt4/A</strong><span>Rizal, Reza</span></td>
-                        </tr>
-                    </tbody>
+                    <thead id="dayHead"></thead>
+                    <tbody id="dayBody"></tbody>
                 </table>
             </div>
+
+            <div id="dayInfo" style="margin-bottom: 20px; font-size: 13px; color: #555;"></div>
 
             <div class="card-footer">
                 <div class="legend">
                     Keterangan:
                     <div class="legend-item legend-pagi">P = Pagi</div>
                     <div class="legend-item legend-siang">S = Siang</div>
-                    <div class="legend-item legend-malam">M = Malam</div>
                 </div>
-                <button class="btn-export">
+                <button class="btn-export" id="btnExport">
                     <i class="fa-solid fa-download"></i> Export
                 </button>
             </div>
         </div>
     </div>
 
+    <script>
+        const API = 'http://localhost:5000/api';
+        const SHIFT_KEY  = { S1: 'pagi', S2: 'siang' };
+        const HEAD_CLASS = { S1: 'col-pagi-header', S2: 'col-siang-header' };
+        const CELL_CLASS = { S1: 'cell-pagi', S2: 'cell-siang' };
+
+        const picker      = document.getElementById('dayPicker');
+        const shiftFilter = document.getElementById('shiftFilter');
+        const statusEl    = document.getElementById('dayStatus');
+        const containerEl = document.getElementById('tableContainer');
+
+        let lastData = null;
+
+        function showStatus(msg) {
+            statusEl.innerHTML = msg;
+            statusEl.style.display = '';
+            containerEl.style.display = 'none';
+        }
+
+        async function init() {
+            try {
+                const res = await fetch(`${API}/status`);
+                const st  = await res.json();
+
+                const mm = String(st.month).padStart(2, '0');
+                picker.min = `${st.year}-${mm}-01`;
+                picker.max = `${st.year}-${mm}-${String(st.days).padStart(2, '0')}`;
+
+                const today = new Date();
+                const day = (today.getFullYear() === st.year && today.getMonth() + 1 === st.month)
+                    ? today.getDate() : 1;
+                picker.value = `${st.year}-${mm}-${String(day).padStart(2, '0')}`;
+
+                if (!st.has_schedule) {
+                    showStatus('Jadwal belum di-generate — upload data di halaman <a href="/input-jadwal">Input Jadwal</a>.');
+                    return;
+                }
+                loadDay();
+            } catch (err) {
+                showStatus('Tidak bisa terhubung ke backend. Jalankan: <code>.venv/bin/python main.py</code>');
+            }
+        }
+
+        async function loadDay() {
+            const day = parseInt(picker.value.split('-')[2], 10);
+            try {
+                const res  = await fetch(`${API}/schedule/day?day=${day}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Gagal memuat jadwal');
+                lastData = data;
+                render();
+            } catch (err) {
+                showStatus(err.message);
+            }
+        }
+
+        function render() {
+            const data   = lastData;
+            const filter = shiftFilter.value;
+            const shifts = filter ? [filter] : ['S1', 'S2'];
+
+            document.getElementById('cardTitle').textContent =
+                `Jadwal Per Tanggal — ${data.day_name}, ${data.day} ${data.month_name} ${data.date.split('-')[0]}`;
+
+            let head = '<tr><th class="col-posisi">Posisi / Sektor</th>';
+            shifts.forEach(s => {
+                const def = data.shift_def[s];
+                head += `<th class="${HEAD_CLASS[s]}">${def.label.toUpperCase()}<span>(${def.time})</span></th>`;
+            });
+            head += '</tr>';
+            document.getElementById('dayHead').innerHTML = head;
+
+            let body = '';
+            data.grid.forEach(row => {
+                body += `<tr><td class="cell-posisi">${row.sector}</td>`;
+                shifts.forEach(s => {
+                    const slot = row[SHIFT_KEY[s]];
+                    if (slot.count === 0) {
+                        body += `<td class="${CELL_CLASS[s]}"><span>—</span></td>`;
+                    } else {
+                        const names = slot.personnel.map(p => p.initial).join(', ');
+                        body += `<td class="${CELL_CLASS[s]}" title="${slot.personnel.map(p => p.nama).join(', ')}">
+                                    <strong>${slot.codes.join(', ')}</strong><span>${names}</span></td>`;
+                    }
+                });
+                body += '</tr>';
+            });
+            document.getElementById('dayBody').innerHTML = body;
+
+            const off   = data.off.map(p => p.initial).join(', ') || '—';
+            const leave = data.leave.map(p => `${p.initial} (${p.jenis})`).join(', ') || '—';
+            document.getElementById('dayInfo').innerHTML =
+                `<strong>OFF:</strong> ${off} &nbsp;|&nbsp; <strong>Cuti/Izin:</strong> ${leave}`;
+
+            statusEl.style.display = 'none';
+            containerEl.style.display = '';
+        }
+
+        picker.addEventListener('change', loadDay);
+        shiftFilter.addEventListener('change', () => lastData && render());
+        document.getElementById('btnExport').addEventListener('click', () => {
+            const day = parseInt(picker.value.split('-')[2], 10);
+            window.location.href = `${API}/export?day=${day}`;
+        });
+
+        init();
+    </script>
 </body>
 </html>

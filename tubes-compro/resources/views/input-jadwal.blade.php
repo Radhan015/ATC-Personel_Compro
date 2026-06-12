@@ -217,23 +217,113 @@
         </div>
 
         <div class="card">
-            <div class="upload-area">
+            <div class="upload-area" id="areaGrid">
                 <div class="upload-icon">
-                    <i class="fa-solid fa-table"></i>
+                    <i class="fa-solid fa-users"></i>
                 </div>
                 <div class="upload-text">
-                    <strong>Klik untuk upload</strong> atau drag & drop file
+                    <strong>File Personel (Roster Grid)</strong> — klik untuk upload atau drag & drop
                 </div>
-                <div class="upload-subtext">
-                    Excel, CSV (maks. 10MB)
+                <div class="upload-subtext" id="subGrid">
+                    CSV dengan kolom EMP_ID, NAMA, INITIAL, SEKTOR (maks. 10MB)
                 </div>
             </div>
 
-            <button class="btn-submit">
+            <div class="upload-area" id="areaLeave">
+                <div class="upload-icon">
+                    <i class="fa-solid fa-calendar-minus"></i>
+                </div>
+                <div class="upload-text">
+                    <strong>File Rencana Cuti (opsional)</strong> — klik untuk upload atau drag & drop
+                </div>
+                <div class="upload-subtext" id="subLeave">
+                    CSV dengan kolom EMP_ID, HARI_KE, JENIS (maks. 10MB)
+                </div>
+            </div>
+
+            <input type="file" id="fileGrid" accept=".csv" hidden>
+            <input type="file" id="fileLeave" accept=".csv" hidden>
+
+            <div id="uploadStatus" style="margin-bottom: 20px; font-size: 14px;"></div>
+
+            <button class="btn-submit" id="btnSubmit">
                 <i class="fa-solid fa-check"></i> Submit
             </button>
         </div>
     </div>
 
+    <script>
+        const API = 'http://localhost:5000/api';
+        const statusEl = document.getElementById('uploadStatus');
+        const btn = document.getElementById('btnSubmit');
+
+        function wireUpload(areaId, inputId, subId, defaultText) {
+            const area  = document.getElementById(areaId);
+            const input = document.getElementById(inputId);
+            const sub   = document.getElementById(subId);
+
+            const showFile = () => {
+                sub.innerHTML = input.files.length
+                    ? `<strong style="color:#0047AB;">✓ ${input.files[0].name}</strong>`
+                    : defaultText;
+            };
+
+            area.addEventListener('click', () => input.click());
+            input.addEventListener('change', showFile);
+            area.addEventListener('dragover', e => { e.preventDefault(); area.style.backgroundColor = '#C8DBF4'; });
+            area.addEventListener('dragleave', () => area.style.backgroundColor = '');
+            area.addEventListener('drop', e => {
+                e.preventDefault();
+                area.style.backgroundColor = '';
+                if (e.dataTransfer.files.length) {
+                    input.files = e.dataTransfer.files;
+                    showFile();
+                }
+            });
+        }
+
+        wireUpload('areaGrid', 'fileGrid', 'subGrid',
+                   'CSV dengan kolom EMP_ID, NAMA, INITIAL, SEKTOR (maks. 10MB)');
+        wireUpload('areaLeave', 'fileLeave', 'subLeave',
+                   'CSV dengan kolom EMP_ID, HARI_KE, JENIS (maks. 10MB)');
+
+        btn.addEventListener('click', async () => {
+            const grid  = document.getElementById('fileGrid').files[0];
+            const leave = document.getElementById('fileLeave').files[0];
+
+            if (!grid && !leave) {
+                statusEl.innerHTML = '<span style="color:#C62828;">Pilih file dulu sebelum submit.</span>';
+                return;
+            }
+
+            const fd = new FormData();
+            if (grid)  fd.append('grid', grid);
+            if (leave) fd.append('leave', leave);
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Memproses (Harmony Search)…';
+            statusEl.innerHTML = '';
+
+            try {
+                const res  = await fetch(`${API}/upload`, { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Upload gagal');
+
+                statusEl.innerHTML =
+                    `<span style="color:#2E7D32;">✓ ${data.message}</span><br>` +
+                    `${data.employee_count} personel, periode ${String(data.month).padStart(2, '0')}/${data.year} — ` +
+                    `pelanggaran keras: ${data.score.hard}, lunak: ${data.score.soft}. ` +
+                    `Lihat hasilnya di <a href="/jadwal">Jadwal</a> atau <a href="/">Dashboard</a>.`;
+            } catch (err) {
+                const msg = err.message === 'Failed to fetch'
+                    ? 'Tidak bisa terhubung ke backend. Jalankan: <code>.venv/bin/python main.py</code>'
+                    : err.message;
+                statusEl.innerHTML = `<span style="color:#C62828;">${msg}</span>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> Submit';
+            }
+        });
+    </script>
 </body>
 </html>

@@ -386,59 +386,18 @@
                             <th class="col-aksi">Aksi</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr>
-                            <td class="col-no">1</td>
-                            <td class="col-nama">Hasanul Fikri Irawan</td>
-                            <td>Sakit</td>
-                            <td>20 Juni 2026</td>
-                            <td>20 Jun 2026</td>
-                            <td>1 Hari</td>
-                            <td>
-                                <div class="action-icons">
-                                    <i class="fa-solid fa-trash"></i>
-                                    <i class="fa-solid fa-pen"></i>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td class="col-no">2</td>
-                            <td class="col-nama">Putu Bagus Oktavianta</td>
-                            <td>Diklat</td>
-                            <td>01 Juni 2026</td>
-                            <td>08 Juni 2026</td>
-                            <td>8 Hari</td>
-                            <td>
-                                <div class="action-icons">
-                                    <i class="fa-solid fa-trash"></i>
-                                    <i class="fa-solid fa-pen"></i>
-                                </div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td class="col-no">3</td>
-                            <td class="col-nama">Agung Adi Wicaksono</td>
-                            <td>Cuti Tahunan</td>
-                            <td>22 Juni 2026</td>
-                            <td>26 Juni 2026</td>
-                            <td>AQS</td>
-                            <td>
-                                <div class="action-icons">
-                                    <i class="fa-solid fa-trash"></i>
-                                    <i class="fa-solid fa-pen"></i>
-                                </div>
-                            </td>
-                        </tr>
+                    <tbody id="pengajuanBody">
+                        <tr><td colspan="7" style="color:#666;">Memuat data…</td></tr>
                     </tbody>
                 </table>
             </div>
 
-            <div class="pagination">
-                <div class="page-item"><i class="fa-solid fa-angles-left"></i></div>
-                <div class="page-item"><i class="fa-solid fa-angle-left"></i></div>
-                <div class="page-item active">1</div>
-                <div class="page-item"><i class="fa-solid fa-angle-right"></i></div>
-                <div class="page-item"><i class="fa-solid fa-angles-right"></i></div>
+            <div class="pagination" id="pagination" style="display: none;">
+                <div class="page-item" id="pageFirst"><i class="fa-solid fa-angles-left"></i></div>
+                <div class="page-item" id="pagePrev"><i class="fa-solid fa-angle-left"></i></div>
+                <div class="page-item active" id="pageCurrent">1</div>
+                <div class="page-item" id="pageNext"><i class="fa-solid fa-angle-right"></i></div>
+                <div class="page-item" id="pageLast"><i class="fa-solid fa-angles-right"></i></div>
             </div>
         </div>
     </div>
@@ -447,33 +406,35 @@
     <div class="modal-overlay" id="tambahModal">
         <div class="modal">
             <i class="fa-solid fa-xmark close-modal" onclick="closeModal()"></i>
-            <h2>Tambah Pengajuan</h2>
-            
+            <h2 id="modalTitle">Tambah Pengajuan</h2>
+
             <div class="form-grid">
                 <div class="form-group">
                     <label>Personel</label>
-                    <select class="form-control">
-                        <option>- Pilih Personel -</option>
+                    <select class="form-control" id="personelSelect">
+                        <option value="">- Pilih Personel -</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Jenis</label>
-                    <select class="form-control">
-                        <option>- Pilih Jenis Pengajuan -</option>
+                    <select class="form-control" id="jenisSelect">
+                        <option value="">- Pilih Jenis Pengajuan -</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Tanggal mulai</label>
-                    <input type="date" class="form-control">
+                    <input type="date" class="form-control" id="startDate">
                 </div>
                 <div class="form-group">
                     <label>Tanggal selesai</label>
-                    <input type="date" class="form-control">
+                    <input type="date" class="form-control" id="endDate">
                 </div>
             </div>
 
+            <div id="modalError" style="color: #FF8A80; font-size: 13px; margin: -15px 0 15px;"></div>
+
             <div class="modal-footer">
-                <button class="btn-submit" onclick="closeModal()">
+                <button class="btn-submit" id="btnModalSubmit" onclick="submitPengajuan()">
                     <i class="fa-solid fa-check"></i> Submit
                 </button>
             </div>
@@ -481,9 +442,33 @@
     </div>
 
     <script>
-        const modal = document.getElementById('tambahModal');
+        const API = 'http://localhost:5000/api';
+        const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+                           'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        const PAGE_SIZE = 10;
 
-        function openModal() {
+        const modal   = document.getElementById('tambahModal');
+        const tbody   = document.getElementById('pengajuanBody');
+        const errorEl = document.getElementById('modalError');
+
+        let items = [];
+        let currentPage = 1;
+        let editingId = null;
+
+        function fmtDate(iso) {
+            const [y, m, d] = iso.split('-');
+            return `${parseInt(d, 10)} ${MONTHS_ID[parseInt(m, 10) - 1]} ${y}`;
+        }
+
+        function openModal(item = null) {
+            editingId = item ? item.id : null;
+            document.getElementById('modalTitle').textContent =
+                item ? 'Edit Pengajuan' : 'Tambah Pengajuan';
+            document.getElementById('personelSelect').value = item ? item.emp_id : '';
+            document.getElementById('jenisSelect').value    = item ? item.jenis : '';
+            document.getElementById('startDate').value      = item ? item.tanggal_mulai : '';
+            document.getElementById('endDate').value        = item ? item.tanggal_selesai : '';
+            errorEl.textContent = '';
             modal.classList.add('active');
         }
 
@@ -491,12 +476,126 @@
             modal.classList.remove('active');
         }
 
-        // Close modal when clicking outside of it
         window.onclick = function(event) {
-            if (event.target == modal) {
-                closeModal();
+            if (event.target == modal) closeModal();
+        };
+
+        async function loadAll() {
+            try {
+                const [empRes, listRes] = await Promise.all([
+                    fetch(`${API}/employees`),
+                    fetch(`${API}/pengurangan-hk`),
+                ]);
+                const list = await listRes.json();
+                if (!listRes.ok) throw new Error(list.error || 'Gagal memuat data');
+
+                const jenisSelect = document.getElementById('jenisSelect');
+                jenisSelect.innerHTML = '<option value="">- Pilih Jenis Pengajuan -</option>' +
+                    list.jenis_options.map(j => `<option value="${j}">${j}</option>`).join('');
+
+                if (empRes.ok) {
+                    const emp = await empRes.json();
+                    document.getElementById('personelSelect').innerHTML =
+                        '<option value="">- Pilih Personel -</option>' +
+                        emp.employees.map(e =>
+                            `<option value="${e.id}">${e.name} (${e.initial})</option>`).join('');
+                }
+
+                items = list.items;
+                renderTable();
+            } catch (err) {
+                const msg = err.message === 'Failed to fetch'
+                    ? 'Tidak bisa terhubung ke backend. Jalankan: <code>.venv/bin/python main.py</code>'
+                    : err.message;
+                tbody.innerHTML = `<tr><td colspan="7" style="color:#C62828;">${msg}</td></tr>`;
             }
         }
+
+        function renderTable() {
+            const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+            currentPage = Math.min(currentPage, pages);
+
+            if (!items.length) {
+                tbody.innerHTML = '<tr><td colspan="7" style="color:#666;">Belum ada pengajuan.</td></tr>';
+            } else {
+                const slice = items.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+                tbody.innerHTML = slice.map(it => `
+                    <tr>
+                        <td class="col-no">${it.no}</td>
+                        <td class="col-nama">${it.nama}</td>
+                        <td>${it.jenis}</td>
+                        <td>${fmtDate(it.tanggal_mulai)}</td>
+                        <td>${fmtDate(it.tanggal_selesai)}</td>
+                        <td>${it.durasi}</td>
+                        <td>
+                            <div class="action-icons">
+                                <i class="fa-solid fa-trash" title="Hapus" onclick="deletePengajuan('${it.id}')"></i>
+                                <i class="fa-solid fa-pen" title="Edit" onclick='openModal(${JSON.stringify(it)})'></i>
+                            </div>
+                        </td>
+                    </tr>`).join('');
+            }
+
+            document.getElementById('pagination').style.display = pages > 1 ? '' : 'none';
+            document.getElementById('pageCurrent').textContent = currentPage;
+            document.getElementById('pageFirst').onclick = () => { currentPage = 1; renderTable(); };
+            document.getElementById('pagePrev').onclick  = () => { currentPage = Math.max(1, currentPage - 1); renderTable(); };
+            document.getElementById('pageNext').onclick  = () => { currentPage = Math.min(pages, currentPage + 1); renderTable(); };
+            document.getElementById('pageLast').onclick  = () => { currentPage = pages; renderTable(); };
+        }
+
+        async function submitPengajuan() {
+            const payload = {
+                emp_id:          document.getElementById('personelSelect').value,
+                jenis:           document.getElementById('jenisSelect').value,
+                tanggal_mulai:   document.getElementById('startDate').value,
+                tanggal_selesai: document.getElementById('endDate').value,
+            };
+
+            const btn = document.getElementById('btnModalSubmit');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generate ulang jadwal…';
+            errorEl.textContent = '';
+
+            try {
+                const url    = editingId ? `${API}/pengurangan-hk/${editingId}` : `${API}/pengurangan-hk`;
+                const method = editingId ? 'PUT' : 'POST';
+                const res  = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Gagal menyimpan pengajuan');
+
+                closeModal();
+                await loadAll();
+            } catch (err) {
+                errorEl.textContent = err.message === 'Failed to fetch'
+                    ? 'Tidak bisa terhubung ke backend (.venv/bin/python main.py).'
+                    : err.message;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> Submit';
+            }
+        }
+
+        async function deletePengajuan(id) {
+            if (!confirm('Hapus pengajuan ini? Jadwal akan di-generate ulang.')) return;
+
+            tbody.innerHTML = '<tr><td colspan="7" style="color:#666;">' +
+                '<i class="fa-solid fa-spinner fa-spin"></i> Menghapus & generate ulang jadwal…</td></tr>';
+            try {
+                const res  = await fetch(`${API}/pengurangan-hk/${id}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Gagal menghapus');
+            } catch (err) {
+                alert(err.message);
+            }
+            loadAll();
+        }
+
+        loadAll();
     </script>
 </body>
 </html>
