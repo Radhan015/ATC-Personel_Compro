@@ -250,7 +250,7 @@
     </div>
 
     <script>
-        const API = 'http://localhost:5000/api';
+        const API = '/api';
 
         document.querySelector('.btn-export').addEventListener('click', () => {
             window.location.href = `${API}/export?format=xlsx`;

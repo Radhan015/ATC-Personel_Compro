@@ -341,7 +341,7 @@
     </div>
 
     <script>
-        const API = 'http://localhost:5000/api';
+        const API = '/api';
         const SHIFT_KEY  = { S1: 'pagi', S2: 'siang' };
         const HEAD_CLASS = { S1: 'col-pagi-header', S2: 'col-siang-header' };
         const CELL_CLASS = { S1: 'cell-pagi', S2: 'cell-siang' };

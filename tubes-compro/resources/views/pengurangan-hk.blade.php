@@ -442,7 +442,7 @@
     </div>
 
     <script>
-        const API = 'http://localhost:5000/api';
+        const API = '/api';
         const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
                            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
         const PAGE_SIZE = 10;

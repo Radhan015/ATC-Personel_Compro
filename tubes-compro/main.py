@@ -818,6 +818,21 @@ CORS(app)
 
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10MB, sesuai teks UI upload
 
+@app.route("/")
+def serve_dashboard():
+    return send_file(BASE_DIR / "resources" / "views" / "dashboard.blade.php")
+
+@app.route("/jadwal")
+def serve_jadwal():
+    return send_file(BASE_DIR / "resources" / "views" / "jadwal.blade.php")
+
+@app.route("/input-jadwal")
+def serve_input_jadwal():
+    return send_file(BASE_DIR / "resources" / "views" / "input-jadwal.blade.php")
+
+@app.route("/pengurangan-hk")
+def serve_pengurangan_hk():
+    return send_file(BASE_DIR / "resources" / "views" / "pengurangan-hk.blade.php")
 
 def require_state() -> dict:
     state = load_state()

@@ -253,7 +253,7 @@
     </div>
 
     <script>
-        const API = 'http://localhost:5000/api';
+        const API = '/api';
         const statusEl = document.getElementById('uploadStatus');
         const btn = document.getElementById('btnSubmit');
 
