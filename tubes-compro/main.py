@@ -1,41 +1,3 @@
-"""
-ATC ROSTERING BACKEND — HARMONY SEARCH ALGORITHM + REST API
-===========================================================
-Kategori  : MEDIUM
-Shift     : S1 (06:00-15:00), S2 (15:00-24:00)
-Notasi    : Format AirNav → Pt1/A, St1/B, dst.
-
-Backend (Flask) untuk frontend Laravel Blade:
-  Dashboard       → GET  /api/schedule/day?day=N      (jadwal per hari, semua shift)
-                    GET  /api/export?format=xlsx|csv[&day=N]
-  Jadwal          → GET  /api/schedule/month          (jadwal sebulan, semua personel)
-  Input Jadwal    → POST /api/upload                  (upload CSV grid + leave plan,
-                                                       lalu jalankan Harmony Search)
-  Pengurangan HK  → GET    /api/pengurangan-hk
-                    POST   /api/pengurangan-hk        (tambah hari libur personel,
-                                                       jadwal di-generate ulang)
-                    PUT    /api/pengurangan-hk/<id>
-                    DELETE /api/pengurangan-hk/<id>
-  Lain-lain       → GET  /api/status
-                    GET  /api/employees
-                    POST /api/generate                (generate ulang manual)
-
-Jalankan:  .venv/bin/python main.py   (API di http://localhost:5000)
-
-Notasi AirNav:
-  [Shift][Tipe][Sektor]/[Tim]
-  Shift : P = Pagi (S1 06-15), S = Siang (S2 15-24), M = Malam
-  Tipe  : t = Tower
-  Sektor: 1, 2, 3 (posisi fisik di tower)
-  Tim   : A, B, C, D (kelompok rotasi)
-
-  Contoh:
-    Pt1/A  → Pagi,  Tower sektor 1, Tim A
-    St2/B  → Siang, Tower sektor 2, Tim B
-    OFF    → Hari libur
-    CUTI   → Cuti (semua jenis)
-"""
-
 import calendar
 import io
 import json
@@ -55,13 +17,9 @@ random.seed(42)
 np.random.seed(42)
 
 
-# ----------------------------------------------------------------------------
-# KONFIGURASI
-# ----------------------------------------------------------------------------
 
 CATEGORY = "MEDIUM"
 
-# Periode aktif (bisa diubah lewat /api/upload). Default: bulan berjalan.
 _today = date.today()
 MONTH = _today.month
 YEAR  = _today.year
@@ -86,7 +44,6 @@ LEAVE_TYPES = {
     "IELP":                "IELP",
 }
 
-# Jenis pengajuan di halaman Pengurangan HK → kode internal
 JENIS_PENGAJUAN = {
     "Cuti Tahunan":        "CUTI_TAHUNAN",
     "Cuti Alasan Penting": "CUTI_ALASAN_PENTING",
@@ -96,8 +53,6 @@ JENIS_PENGAJUAN = {
     "IELP":                "IELP",
 }
 
-# Kode tampilan untuk tabel Jadwal bulanan (selaras dgn CSS frontend:
-# cell-pa, cell-sa, cell-l, cell-dk, cell-ct, cell-sk)
 DISPLAY_CODE = {
     "S1": "PA", "S2": "SA", "M": "MA",
     "OFF": "L", "CUTI": "CT", "SAKIT": "SK",
@@ -120,6 +75,9 @@ RULES = {
     "min_rest_after_1_night_hours":   30,
     "min_rest_after_2_nights_hours":  54,
     "night_cannot_follow_s2_same_day": True,
+
+    "max_shift_imbalance":            2,
+    "imbalance_weight":               3,
 }
 
 HS_PARAMS = {
@@ -158,9 +116,6 @@ def set_period(month: int, year: int) -> None:
     DAYS  = calendar.monthrange(year, month)[1]
 
 
-# ----------------------------------------------------------------------------
-# LOAD DATA
-# ----------------------------------------------------------------------------
 
 def load_grid(path: Path) -> pd.DataFrame:
     df_grid = pd.read_csv(path)
@@ -201,9 +156,6 @@ def build_locked_days(df_leave: pd.DataFrame) -> dict[str, dict[int, str]]:
     return locked
 
 
-# ----------------------------------------------------------------------------
-# NOTASI AIRNAV
-# ----------------------------------------------------------------------------
 
 def encode_airnav(shift: str, sector: int, team: str) -> str:
     if shift not in SHIFT_DEF:
@@ -235,9 +187,6 @@ def assign_team_rotation(shift: str, sector: int, day: int, emp_index: int) -> s
     return encode_airnav(shift, sector, team)
 
 
-# ----------------------------------------------------------------------------
-# ATURAN / CONSTRAINT
-# ----------------------------------------------------------------------------
 
 def get_streak(schedule: dict, emp_id: str, up_to_day: int) -> int:
     streak = 0
@@ -370,22 +319,30 @@ def count_violations(schedule: dict, employees: list[dict]) -> dict:
             if val in counter:
                 counter[val] += 1
 
-        for shift_key, count in counter.items():
-            if count > 0 and count < RULES["min_staff_per_shift"]:
-                soft += 1
+        for shift_key in ("S1", "S2"):
+            count = counter[shift_key]
+            if count < RULES["min_staff_per_shift"]:
+                soft += (RULES["min_staff_per_shift"] - count)
                 details.append(
                     f"[LUNAK-S2] hari-{day} shift {shift_key}: "
                     f"hanya {count} personel "
                     f"(min {RULES['min_staff_per_shift']})"
                 )
 
+        imbalance = abs(counter["S1"] - counter["S2"])
+        if imbalance > RULES["max_shift_imbalance"]:
+            excess = imbalance - RULES["max_shift_imbalance"]
+            soft += excess * RULES["imbalance_weight"]
+            details.append(
+                f"[LUNAK-S3] hari-{day}: distribusi timpang "
+                f"Pagi={counter['S1']} vs Siang={counter['S2']} "
+                f"(selisih {imbalance}, maks {RULES['max_shift_imbalance']})"
+            )
+
     total = hard * HS_PARAMS["penalty_hard"] + soft * HS_PARAMS["penalty_soft"]
     return {"hard": hard, "soft": soft, "total": total, "details": details}
 
 
-# ----------------------------------------------------------------------------
-# HARMONY SEARCH
-# ----------------------------------------------------------------------------
 
 def get_valid_shifts(
     schedule:    dict,
@@ -423,6 +380,26 @@ def pick_shift(valid_shifts: list[str]) -> str:
     work_shifts = [s for s in valid_shifts if s in ("S1", "S2", "M")]
 
     if work_shifts and random.random() < 0.65:
+        if "S1" in work_shifts and "S2" in work_shifts:
+            return "S1" if random.random() < 0.65 else "S2"
+        return random.choice(work_shifts)
+
+    return random.choice(valid_shifts)
+
+
+def pick_shift_balanced(valid_shifts: list[str], day_counts: dict) -> str:
+    """Seperti pick_shift, tetapi memilih shift kerja yang masih kurang
+    personel pada hari itu, supaya distribusi Pagi vs Siang seimbang."""
+    work_shifts = [s for s in valid_shifts if s in ("S1", "S2", "M")]
+
+    if work_shifts and random.random() < 0.70:
+        if "S1" in work_shifts and "S2" in work_shifts:
+            s1, s2 = day_counts.get("S1", 0), day_counts.get("S2", 0)
+            if s1 < s2:
+                return "S1" if random.random() < 0.85 else "S2"
+            if s2 < s1:
+                return "S2" if random.random() < 0.85 else "S1"
+            return random.choice(["S1", "S2"])
         return random.choice(work_shifts)
 
     return random.choice(valid_shifts)
@@ -431,10 +408,16 @@ def pick_shift(valid_shifts: list[str]) -> str:
 def generate_harmony(employees: list[dict],
                      locked_days: dict) -> dict:
     schedule = {emp["id"]: {} for emp in employees}
-    for emp in employees:
-        for day in range(1, DAYS + 1):
+    order = list(employees)
+    for day in range(1, DAYS + 1):
+        random.shuffle(order)
+        day_counts = {"S1": 0, "S2": 0}
+        for emp in order:
             valid = get_valid_shifts(schedule, emp["id"], day, locked_days)
-            schedule[emp["id"]][day] = pick_shift(valid)
+            val = pick_shift_balanced(valid, day_counts)
+            schedule[emp["id"]][day] = val
+            if val in day_counts:
+                day_counts[val] += 1
     return schedule
 
 
@@ -530,9 +513,6 @@ def schedule_to_airnav(schedule: dict,
     return airnav
 
 
-# ----------------------------------------------------------------------------
-# OUTPUT (CSV / EXCEL)
-# ----------------------------------------------------------------------------
 
 def day_name_map() -> dict[int, str]:
     return {
@@ -719,9 +699,6 @@ def export_to_excel(df_output: pd.DataFrame,
     wb.save(output_path)
 
 
-# ----------------------------------------------------------------------------
-# PERSISTENSI STATE & PENGAJUAN PENGURANGAN HK
-# ----------------------------------------------------------------------------
 
 def load_pengajuan() -> list[dict]:
     if PATH_PENGAJUAN.exists():
@@ -784,8 +761,17 @@ def load_state() -> Optional[dict]:
     return state
 
 
-def regenerate(max_iter: Optional[int] = None) -> dict:
-    """Jalankan Harmony Search dgn data tersimpan + pengajuan, simpan hasil."""
+def regenerate(max_iter: Optional[int] = None,
+               seed: Optional[int] = None) -> dict:
+    """Jalankan Harmony Search dgn data tersimpan + pengajuan, simpan hasil.
+
+    `seed` opsional: kalau diisi, Harmony Search dimulai dari titik acak yang
+    berbeda sehingga menghasilkan jadwal terbaik alternatif (dipakai tombol
+    'Generate Jadwal Baru')."""
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed % (2**32))
+
     if not PATH_GRID.exists():
         raise FileNotFoundError(
             "Belum ada data personel. Upload file roster grid lewat halaman Input Jadwal.")
@@ -809,14 +795,11 @@ def regenerate(max_iter: Optional[int] = None) -> dict:
     return load_state()
 
 
-# ----------------------------------------------------------------------------
-# FLASK API
-# ----------------------------------------------------------------------------
 
 app = Flask(__name__)
 CORS(app)
 
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10MB, sesuai teks UI upload
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
 @app.route("/")
 def serve_dashboard():
@@ -873,7 +856,6 @@ def api_employees():
     return jsonify({"employees": state["employees"]})
 
 
-# ---------------------------- INPUT JADWAL ----------------------------------
 
 @app.post("/api/upload")
 def api_upload():
@@ -895,14 +877,14 @@ def api_upload():
 
     if grid_file is not None:
         content = grid_file.read()
-        df = load_grid(io.BytesIO(content))          # validasi kolom
+        df = load_grid(io.BytesIO(content))
         if df.empty:
             raise ValueError("File roster grid kosong.")
         PATH_GRID.write_bytes(content)
 
     if leave_file is not None:
         content = leave_file.read()
-        load_leave(io.BytesIO(content))              # validasi kolom
+        load_leave(io.BytesIO(content))
         PATH_LEAVE.write_bytes(content)
 
     state = regenerate()
@@ -918,17 +900,27 @@ def api_upload():
 
 @app.post("/api/generate")
 def api_generate():
+    """Generate ulang jadwal. Setiap pemanggilan memakai titik awal acak baru
+    sehingga menghasilkan alternatif jadwal terbaik yang berbeda dari yang
+    sekarang (tetap lewat Harmony Search & memenuhi constraint yang sama)."""
     max_iter = request.args.get("iterations", type=int)
-    state = require_state()           # pastikan periode mengikuti state terakhir
-    state = regenerate(max_iter=max_iter)
+    prev = require_state()
+    prev_airnav = prev["airnav"]
+
+    state = prev
+    for _ in range(4):
+        seed = uuid.uuid4().int % (2**31)
+        state = regenerate(max_iter=max_iter, seed=seed)
+        if state["airnav"] != prev_airnav:
+            break
+
     return jsonify({
-        "message": "Jadwal berhasil di-generate ulang.",
+        "message": "Jadwal baru berhasil di-generate.",
         "score":   state["score"],
         "generated_at": state["generated_at"],
     })
 
 
-# ------------------------------ DASHBOARD -----------------------------------
 
 @app.get("/api/schedule/day")
 def api_schedule_day():
@@ -938,11 +930,10 @@ def api_schedule_day():
     if not 1 <= day <= state["days"]:
         raise ValueError(f"Hari harus 1-{state['days']}.")
 
-    shift_filter = request.args.get("shift")          # S1 / S2 / M, opsional
+    shift_filter = request.args.get("shift")
 
     emp_by_id = {e["id"]: e for e in state["employees"]}
 
-    # grid[sektor][shift] = {"codes": set, "personnel": [...]}
     grid: dict[int, dict[str, dict]] = {
         s: {k: {"codes": [], "personnel": []} for k in SHIFT_DEF} for s in SECTORS
     }
@@ -993,7 +984,6 @@ def api_schedule_day():
     })
 
 
-# -------------------------------- JADWAL -------------------------------------
 
 @app.get("/api/schedule/month")
 def api_schedule_month():
@@ -1046,7 +1036,6 @@ def api_schedule_month():
     })
 
 
-# -------------------------------- EXPORT -------------------------------------
 
 @app.get("/api/export")
 def api_export():
@@ -1089,7 +1078,6 @@ def api_export():
         download_name=f"atc_roster_{state['year']}-{state['month']:02d}.xlsx")
 
 
-# --------------------------- PENGURANGAN HK ----------------------------------
 
 def format_pengajuan(item: dict, no: int, emp_by_id: dict) -> dict:
     start = date.fromisoformat(item["tanggal_mulai"])

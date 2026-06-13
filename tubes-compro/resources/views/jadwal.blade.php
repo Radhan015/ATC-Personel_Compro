@@ -202,10 +202,86 @@
         /* Cell Types */
         .cell-pa { color: #1565C0; background-color: #E3F2FD; font-weight: 500; }
         .cell-sa { color: #2E7D32; background-color: #E8F5E9; font-weight: 500; }
+        .cell-ma { color: #6A1B9A; background-color: #F3E5F5; font-weight: 500; }
         .cell-l { color: #C62828; background-color: #FFEBEE; font-weight: 600; }
         .cell-dk { color: #E65100; background-color: #FFF3E0; font-weight: 500; }
         .cell-ct { color: #1565C0; background-color: #BBDEFB; font-weight: 500; }
         .cell-sk { color: #C62828; background-color: #FFCDD2; font-weight: 600; }
+        .cell-mc { color: #C62828; background-color: #FFCDD2; font-weight: 600; }
+        .cell-il { color: #00838F; background-color: #E0F7FA; font-weight: 500; }
+
+        /* Header buttons */
+        .header-actions { display: flex; gap: 12px; }
+
+        .btn-generate {
+            background-color: #198754;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+        .btn-generate:hover { background-color: #157347; }
+        .btn-generate:disabled { background-color: #9CC5AE; cursor: not-allowed; }
+
+        /* Legend */
+        .legend-card {
+            background: #FFF;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            padding: 18px 20px;
+            margin-top: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+        }
+        .legend-card h3 {
+            font-size: 14px;
+            font-weight: 700;
+            color: #000;
+            margin-bottom: 12px;
+        }
+        .legend-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 14px;
+            margin-bottom: 14px;
+        }
+        .legend-chip {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12.5px;
+            color: #333;
+        }
+        .legend-code {
+            display: inline-block;
+            min-width: 26px;
+            text-align: center;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+            font-size: 11px;
+            border: 1px solid rgba(0,0,0,0.08);
+        }
+        .legend-note {
+            font-size: 12px;
+            color: #555;
+            line-height: 1.6;
+            border-top: 1px dashed var(--border-color);
+            padding-top: 12px;
+        }
+        .legend-note code {
+            background: #F1F5F9;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 11.5px;
+            color: #0B192C;
+        }
 
     </style>
 </head>
@@ -235,9 +311,14 @@
             <div class="title-section">
                 <h1>Jadwal</h1>
             </div>
-            <button class="btn-export">
-                <i class="fa-solid fa-download"></i> Export
-            </button>
+            <div class="header-actions">
+                <button class="btn-generate" id="btnGenerate">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Generate Jadwal Baru
+                </button>
+                <button class="btn-export">
+                    <i class="fa-solid fa-download"></i> Export
+                </button>
+            </div>
         </div>
 
         <div class="card">
@@ -247,6 +328,29 @@
                 <tbody id="jadwalBody"></tbody>
             </table>
         </div>
+
+        <div class="legend-card" id="legendCard" style="display: none;">
+            <h3>Keterangan</h3>
+            <div class="legend-grid">
+                <div class="legend-chip"><span class="legend-code cell-pa">P</span> Shift Pagi (06:00&ndash;15:00)</div>
+                <div class="legend-chip"><span class="legend-code cell-sa">S</span> Shift Siang (15:00&ndash;24:00)</div>
+                <div class="legend-chip"><span class="legend-code cell-ma">M</span> Shift Malam</div>
+                <div class="legend-chip"><span class="legend-code cell-l">L</span> Libur / OFF</div>
+                <div class="legend-chip"><span class="legend-code cell-ct">CT</span> Cuti</div>
+                <div class="legend-chip"><span class="legend-code cell-sk">SK</span> Sakit</div>
+                <div class="legend-chip"><span class="legend-code cell-dk">DK</span> Diklat</div>
+                <div class="legend-chip"><span class="legend-code cell-mc">MC</span> MEDEC</div>
+                <div class="legend-chip"><span class="legend-code cell-il">IL</span> IELP</div>
+            </div>
+            <div class="legend-note">
+                <strong>Notasi sel kerja:</strong> <code>[Shift]t[Sektor]/[Tim]</code> &mdash;
+                contoh <code>Pt1/A</code> = Pagi, Tower Sektor 1, Tim A.
+                <strong>Shift:</strong> P = Pagi, S = Siang, M = Malam &nbsp;&middot;&nbsp;
+                <strong>Sektor:</strong> 1&ndash;2 (posisi di tower) &nbsp;&middot;&nbsp;
+                <strong>Tim:</strong> A&ndash;D (kelompok rotasi).
+                Arahkan kursor ke sel untuk melihat nama lengkap personel.
+            </div>
+        </div>
     </div>
 
     <script>
@@ -255,6 +359,29 @@
         document.querySelector('.btn-export').addEventListener('click', () => {
             window.location.href = `${API}/export?format=xlsx`;
         });
+
+        const btnGenerate = document.getElementById('btnGenerate');
+        btnGenerate.addEventListener('click', async () => {
+            const original = btnGenerate.innerHTML;
+            btnGenerate.disabled = true;
+            btnGenerate.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menghasilkan…';
+            try {
+                const res  = await fetch(`${API}/generate`, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Gagal generate jadwal');
+                await loadJadwal();
+            } catch (err) {
+                alert(err.message === 'Failed to fetch'
+                    ? 'Tidak bisa terhubung ke backend.'
+                    : err.message);
+            } finally {
+                btnGenerate.disabled = false;
+                btnGenerate.innerHTML = original;
+            }
+        });
+
+        // Pemetaan shift (huruf depan notasi AirNav) → kelas warna sel.
+        const SHIFT_CELL_CLASS = { P: 'pa', S: 'sa', M: 'ma' };
 
         async function loadJadwal() {
             const statusEl = document.getElementById('jadwalStatus');
@@ -282,14 +409,24 @@
                 data.rows.forEach(row => {
                     body += `<tr><td class="col-no">${row.no}</td>
                              <td class="col-nama" title="${row.nama}">${row.initial}</td>`;
-                    row.cells.forEach(c =>
-                        body += `<td class="cell-${c.code.toLowerCase()}" title="${c.airnav}">${c.code}</td>`);
+                    row.cells.forEach(c => {
+                        // Sel kerja → tampilkan notasi AirNav (shift + sektor + tim),
+                        // sel non-kerja (L/CT/SK/dst) → tampilkan kode singkat.
+                        const isWork = c.airnav.includes('/');
+                        if (isWork) {
+                            const cls = SHIFT_CELL_CLASS[c.airnav[0]] || 'pa';
+                            body += `<td class="cell-${cls}" title="${row.nama} — ${c.airnav}">${c.airnav}</td>`;
+                        } else {
+                            body += `<td class="cell-${c.code.toLowerCase()}" title="${row.nama}">${c.code}</td>`;
+                        }
+                    });
                     body += `<td class="col-hk">${row.hk}</td></tr>`;
                 });
                 document.getElementById('jadwalBody').innerHTML = body;
 
                 statusEl.style.display = 'none';
                 table.style.display = '';
+                document.getElementById('legendCard').style.display = '';
             } catch (err) {
                 const msg = err.message === 'Failed to fetch'
                     ? 'Tidak bisa terhubung ke backend. Jalankan: <code>.venv/bin/python main.py</code>'
