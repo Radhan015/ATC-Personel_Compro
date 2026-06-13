@@ -213,6 +213,19 @@
         .action-icons i:hover {
             color: #000;
         }
+        .badge-rencana {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            font-weight: 500;
+            color: #6B7280;
+            background: #F3F4F6;
+            border: 1px solid #E5E7EB;
+            padding: 3px 9px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
 
         /* Pagination */
         .pagination {
@@ -519,7 +532,15 @@
                 tbody.innerHTML = '<tr><td colspan="7" style="color:#666;">Belum ada pengajuan.</td></tr>';
             } else {
                 const slice = items.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-                tbody.innerHTML = slice.map(it => `
+                tbody.innerHTML = slice.map(it => {
+                    const aksi = it.source === 'leave_plan'
+                        ? `<span class="badge-rencana" title="Berasal dari rencana cuti yang diupload">
+                               <i class="fa-solid fa-lock"></i> Rencana cuti</span>`
+                        : `<div class="action-icons">
+                               <i class="fa-solid fa-trash" title="Hapus" onclick="deletePengajuan('${it.id}')"></i>
+                               <i class="fa-solid fa-pen" title="Edit" onclick='openModal(${JSON.stringify(it)})'></i>
+                           </div>`;
+                    return `
                     <tr>
                         <td class="col-no">${it.no}</td>
                         <td class="col-nama">${it.nama}</td>
@@ -527,13 +548,9 @@
                         <td>${fmtDate(it.tanggal_mulai)}</td>
                         <td>${fmtDate(it.tanggal_selesai)}</td>
                         <td>${it.durasi}</td>
-                        <td>
-                            <div class="action-icons">
-                                <i class="fa-solid fa-trash" title="Hapus" onclick="deletePengajuan('${it.id}')"></i>
-                                <i class="fa-solid fa-pen" title="Edit" onclick='openModal(${JSON.stringify(it)})'></i>
-                            </div>
-                        </td>
-                    </tr>`).join('');
+                        <td>${aksi}</td>
+                    </tr>`;
+                }).join('');
             }
 
             document.getElementById('pagination').style.display = pages > 1 ? '' : 'none';
@@ -554,7 +571,9 @@
 
             const btn = document.getElementById('btnModalSubmit');
             btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generate ulang jadwal…';
+            btn.innerHTML = editingId
+                ? '<i class="fa-solid fa-spinner fa-spin"></i> Generate ulang jadwal…'
+                : '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan…';
             errorEl.textContent = '';
 
             try {
@@ -581,10 +600,10 @@
         }
 
         async function deletePengajuan(id) {
-            if (!confirm('Hapus pengajuan ini? Jadwal akan di-generate ulang.')) return;
+            if (!confirm('Hapus pengajuan ini?')) return;
 
             tbody.innerHTML = '<tr><td colspan="7" style="color:#666;">' +
-                '<i class="fa-solid fa-spinner fa-spin"></i> Menghapus & generate ulang jadwal…</td></tr>';
+                '<i class="fa-solid fa-spinner fa-spin"></i> Menghapus…</td></tr>';
             try {
                 const res  = await fetch(`${API}/pengurangan-hk/${id}`, { method: 'DELETE' });
                 const data = await res.json();

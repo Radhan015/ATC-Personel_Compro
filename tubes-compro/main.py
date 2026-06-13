@@ -388,8 +388,6 @@ def pick_shift(valid_shifts: list[str]) -> str:
 
 
 def pick_shift_balanced(valid_shifts: list[str], day_counts: dict) -> str:
-    """Seperti pick_shift, tetapi memilih shift kerja yang masih kurang
-    personel pada hari itu, supaya distribusi Pagi vs Siang seimbang."""
     work_shifts = [s for s in valid_shifts if s in ("S1", "S2", "M")]
 
     if work_shifts and random.random() < 0.70:
@@ -711,7 +709,6 @@ def save_pengajuan(items: list[dict]) -> None:
 
 
 def pengajuan_to_locked_days(items: list[dict]) -> dict[str, dict[int, str]]:
-    """Konversi pengajuan (rentang tanggal) → hari terkunci pada bulan aktif."""
     locked: dict[str, dict[int, str]] = {}
     for item in items:
         eid   = str(item["emp_id"])
@@ -763,11 +760,6 @@ def load_state() -> Optional[dict]:
 
 def regenerate(max_iter: Optional[int] = None,
                seed: Optional[int] = None) -> dict:
-    """Jalankan Harmony Search dgn data tersimpan + pengajuan, simpan hasil.
-
-    `seed` opsional: kalau diisi, Harmony Search dimulai dari titik acak yang
-    berbeda sehingga menghasilkan jadwal terbaik alternatif (dipakai tombol
-    'Generate Jadwal Baru')."""
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed % (2**32))
@@ -859,9 +851,6 @@ def api_employees():
 
 @app.post("/api/upload")
 def api_upload():
-    """Terima CSV dari device: 'grid' (personel) wajib, 'leave' (rencana cuti)
-    opsional. Field form 'month'/'year' opsional. Setelah file disimpan,
-    Harmony Search langsung dijalankan."""
     grid_file  = request.files.get("grid") or request.files.get("file")
     leave_file = request.files.get("leave")
 
@@ -900,9 +889,6 @@ def api_upload():
 
 @app.post("/api/generate")
 def api_generate():
-    """Generate ulang jadwal. Setiap pemanggilan memakai titik awal acak baru
-    sehingga menghasilkan alternatif jadwal terbaik yang berbeda dari yang
-    sekarang (tetap lewat Harmony Search & memenuhi constraint yang sama)."""
     max_iter = request.args.get("iterations", type=int)
     prev = require_state()
     prev_airnav = prev["airnav"]
@@ -924,7 +910,6 @@ def api_generate():
 
 @app.get("/api/schedule/day")
 def api_schedule_day():
-    """Jadwal satu hari, semua shift, dikelompokkan per sektor (utk Dashboard)."""
     state = require_state()
     day = request.args.get("day", default=date.today().day, type=int)
     if not 1 <= day <= state["days"]:
@@ -987,7 +972,6 @@ def api_schedule_day():
 
 @app.get("/api/schedule/month")
 def api_schedule_month():
-    """Jadwal sebulan penuh utk semua personel dalam satu tabel (halaman Jadwal)."""
     state = require_state()
 
     headers = []
@@ -1039,8 +1023,6 @@ def api_schedule_month():
 
 @app.get("/api/export")
 def api_export():
-    """Download jadwal. format=xlsx (default) / csv. Param 'day' opsional →
-    CSV jadwal satu hari saja (utk tombol Export di Dashboard)."""
     state = require_state()
     fmt = request.args.get("format", "xlsx").lower()
     day = request.args.get("day", type=int)
@@ -1085,7 +1067,7 @@ def format_pengajuan(item: dict, no: int, emp_by_id: dict) -> dict:
     emp   = emp_by_id.get(str(item["emp_id"]), {})
     return {
         "no":              no,
-        "id":              item["id"],
+        "id":              item.get("id"),
         "emp_id":          item["emp_id"],
         "nama":            emp.get("name", item.get("nama", "?")),
         "initial":         emp.get("initial", ""),
@@ -1093,7 +1075,44 @@ def format_pengajuan(item: dict, no: int, emp_by_id: dict) -> dict:
         "tanggal_mulai":   item["tanggal_mulai"],
         "tanggal_selesai": item["tanggal_selesai"],
         "durasi":          f"{(end - start).days + 1} Hari",
+        "source":          item.get("source", "manual"),
     }
+
+
+def leave_plan_items() -> list[dict]:
+    if not PATH_LEAVE.exists():
+        return []
+
+    df = load_leave(PATH_LEAVE)
+    code_to_display = {v: k for k, v in JENIS_PENGAJUAN.items()}
+
+    groups: dict[tuple, list[int]] = {}
+    for _, row in df.iterrows():
+        eid  = str(row["EMP_ID"])
+        day  = int(row["HARI_KE"])
+        kode = str(row["JENIS"])
+        if 1 <= day <= DAYS:
+            groups.setdefault((eid, kode), []).append(day)
+
+    items = []
+    for (eid, kode), days in groups.items():
+        days.sort()
+        run_start = prev = days[0]
+        for d in days[1:] + [None]:
+            if d == prev + 1:
+                prev = d
+            else:
+                items.append({
+                    "emp_id":          eid,
+                    "jenis":           code_to_display.get(kode, kode),
+                    "tanggal_mulai":   date(YEAR, MONTH, run_start).isoformat(),
+                    "tanggal_selesai": date(YEAR, MONTH, prev).isoformat(),
+                    "source":          "leave_plan",
+                })
+                if d is not None:
+                    run_start = prev = d
+    items.sort(key=lambda x: (x["tanggal_mulai"], x["emp_id"]))
+    return items
 
 
 def validate_pengajuan_payload(data: dict, employees: list[dict]) -> dict:
@@ -1132,8 +1151,11 @@ def validate_pengajuan_payload(data: dict, employees: list[dict]) -> dict:
 @app.get("/api/pengurangan-hk")
 def api_pengajuan_list():
     state = load_state()
+    if state:
+        set_period(state["month"], state["year"])
     emp_by_id = {e["id"]: e for e in (state["employees"] if state else [])}
-    items = load_pengajuan()
+
+    items = leave_plan_items() + load_pengajuan()
     return jsonify({
         "jenis_options": list(JENIS_PENGAJUAN.keys()),
         "items": [format_pengajuan(it, i + 1, emp_by_id)
@@ -1152,10 +1174,10 @@ def api_pengajuan_add():
     items.append(payload)
     save_pengajuan(items)
 
-    state = regenerate()
     emp_by_id = {e["id"]: e for e in state["employees"]}
     return jsonify({
-        "message": "Pengajuan ditambahkan, jadwal baru berhasil di-generate.",
+        "message": "Pengajuan ditambahkan. Jadwal tidak diubah — "
+                   "generate ulang dari halaman Jadwal bila perlu.",
         "item":    format_pengajuan(payload, len(items), emp_by_id),
         "score":   state["score"],
     }), 201
@@ -1175,10 +1197,10 @@ def api_pengajuan_update(item_id: str):
     items[idx] = payload
     save_pengajuan(items)
 
-    state = regenerate()
     emp_by_id = {e["id"]: e for e in state["employees"]}
     return jsonify({
-        "message": "Pengajuan diperbarui, jadwal baru berhasil di-generate.",
+        "message": "Pengajuan diperbarui. Jadwal tidak diubah — "
+                   "generate ulang dari halaman Jadwal bila perlu.",
         "item":    format_pengajuan(payload, idx + 1, emp_by_id),
         "score":   state["score"],
     })
@@ -1186,16 +1208,16 @@ def api_pengajuan_update(item_id: str):
 
 @app.delete("/api/pengurangan-hk/<item_id>")
 def api_pengajuan_delete(item_id: str):
-    require_state()
+    state = require_state()
     items = load_pengajuan()
     remaining = [it for it in items if it["id"] != item_id]
     if len(remaining) == len(items):
         raise ValueError(f"Pengajuan {item_id} tidak ditemukan.")
     save_pengajuan(remaining)
 
-    state = regenerate()
     return jsonify({
-        "message": "Pengajuan dihapus, jadwal baru berhasil di-generate.",
+        "message": "Pengajuan dihapus. Jadwal tidak diubah — "
+                   "generate ulang dari halaman Jadwal bila perlu.",
         "score":   state["score"],
     })
 
