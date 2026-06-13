@@ -787,6 +787,47 @@ def regenerate(max_iter: Optional[int] = None,
     return load_state()
 
 
+def jenis_to_internal_value(jenis_display: str) -> str:
+    """Nama jenis di form ('Cuti Tahunan') → nilai internal jadwal ('CUTI')."""
+    kode = JENIS_PENGAJUAN.get(jenis_display, jenis_display)
+    return LEAVE_TYPES.get(kode, "CUTI")
+
+
+def set_state_days(state: dict, emp_id: str,
+                   start: date, end: date, value: str) -> None:
+    """Timpa sel jadwal seorang personel utk rentang tanggal dgn `value`
+    (mis. 'CUTI'/'SAKIT' utk libur, atau 'OFF' saat pengajuan dibatalkan).
+    Hanya menyentuh personel ybs — personel lain tidak berubah."""
+    if emp_id not in state["schedule"]:
+        return
+    d = start
+    while d <= end:
+        if (d.year, d.month) == (state["year"], state["month"]):
+            day = d.day
+            state["schedule"][emp_id][day] = value
+            state["airnav"][emp_id][day]   = value
+        d += timedelta(days=1)
+
+
+def save_patched_state(state: dict) -> dict:
+    """Hitung ulang skor, tulis ulang file output, dan simpan state yang sudah
+    di-patch in-place (tanpa menjalankan Harmony Search lagi)."""
+    set_period(state["month"], state["year"])
+    employees = state["employees"]
+    schedule  = state["schedule"]
+    airnav    = state["airnav"]
+
+    score = count_violations(schedule, employees)
+    result = {"schedule": schedule, "score": score}
+
+    df_output = build_output_dataframe(airnav, employees, day_name_map())
+    df_output.to_csv(PATH_OUT_CSV, index=False)
+    export_to_excel(df_output, result, employees, PATH_OUT_XLSX)
+
+    save_state(employees, result, airnav)
+    return load_state()
+
+
 
 app = Flask(__name__)
 CORS(app)
@@ -1174,10 +1215,18 @@ def api_pengajuan_add():
     items.append(payload)
     save_pengajuan(items)
 
+    # Keluarkan personel dari shift pada tanggal cuti & tandai tidak tersedia,
+    # tanpa men-generate ulang seluruh roster (personel lain tetap).
+    set_state_days(state, payload["emp_id"],
+                   date.fromisoformat(payload["tanggal_mulai"]),
+                   date.fromisoformat(payload["tanggal_selesai"]),
+                   jenis_to_internal_value(payload["jenis"]))
+    state = save_patched_state(state)
+
     emp_by_id = {e["id"]: e for e in state["employees"]}
     return jsonify({
-        "message": "Pengajuan ditambahkan. Jadwal tidak diubah — "
-                   "generate ulang dari halaman Jadwal bila perlu.",
+        "message": "Pengajuan ditambahkan. Personel dikeluarkan dari shift "
+                   "pada tanggal tersebut.",
         "item":    format_pengajuan(payload, len(items), emp_by_id),
         "score":   state["score"],
     }), 201
@@ -1191,16 +1240,27 @@ def api_pengajuan_update(item_id: str):
     if idx is None:
         raise ValueError(f"Pengajuan {item_id} tidak ditemukan.")
 
+    old = items[idx]
     payload = validate_pengajuan_payload(request.get_json(force=True),
                                          state["employees"])
     payload["id"] = item_id
     items[idx] = payload
     save_pengajuan(items)
 
+    # Kembalikan hari cuti lama jadi OFF, lalu terapkan rentang cuti yg baru.
+    set_state_days(state, old["emp_id"],
+                   date.fromisoformat(old["tanggal_mulai"]),
+                   date.fromisoformat(old["tanggal_selesai"]),
+                   "OFF")
+    set_state_days(state, payload["emp_id"],
+                   date.fromisoformat(payload["tanggal_mulai"]),
+                   date.fromisoformat(payload["tanggal_selesai"]),
+                   jenis_to_internal_value(payload["jenis"]))
+    state = save_patched_state(state)
+
     emp_by_id = {e["id"]: e for e in state["employees"]}
     return jsonify({
-        "message": "Pengajuan diperbarui. Jadwal tidak diubah — "
-                   "generate ulang dari halaman Jadwal bila perlu.",
+        "message": "Pengajuan diperbarui. Jadwal personel terkait disesuaikan.",
         "item":    format_pengajuan(payload, idx + 1, emp_by_id),
         "score":   state["score"],
     })
@@ -1210,14 +1270,21 @@ def api_pengajuan_update(item_id: str):
 def api_pengajuan_delete(item_id: str):
     state = require_state()
     items = load_pengajuan()
-    remaining = [it for it in items if it["id"] != item_id]
-    if len(remaining) == len(items):
+    removed = next((it for it in items if it["id"] == item_id), None)
+    if removed is None:
         raise ValueError(f"Pengajuan {item_id} tidak ditemukan.")
-    save_pengajuan(remaining)
+    save_pengajuan([it for it in items if it["id"] != item_id])
+
+    # Bebaskan hari cuti tsb jadi OFF (personel tidak otomatis dapat shift lagi;
+    # gunakan 'Generate Jadwal Baru' bila ingin mengisinya kembali).
+    set_state_days(state, removed["emp_id"],
+                   date.fromisoformat(removed["tanggal_mulai"]),
+                   date.fromisoformat(removed["tanggal_selesai"]),
+                   "OFF")
+    state = save_patched_state(state)
 
     return jsonify({
-        "message": "Pengajuan dihapus. Jadwal tidak diubah — "
-                   "generate ulang dari halaman Jadwal bila perlu.",
+        "message": "Pengajuan dihapus. Hari cuti dibebaskan menjadi OFF.",
         "score":   state["score"],
     })
 

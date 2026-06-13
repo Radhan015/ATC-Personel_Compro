@@ -571,9 +571,7 @@
 
             const btn = document.getElementById('btnModalSubmit');
             btn.disabled = true;
-            btn.innerHTML = editingId
-                ? '<i class="fa-solid fa-spinner fa-spin"></i> Generate ulang jadwal…'
-                : '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan…';
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyimpan…';
             errorEl.textContent = '';
 
             try {
